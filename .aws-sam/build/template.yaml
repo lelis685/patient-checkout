@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'patientcheckout
+
+  Sample SAM Template for patientcheckout
+
+  '
+Globals:
+  Function:
+    Runtime: java11
+    MemorySize: 512
+    Timeout: 20
+Resources:
+  PatientCheckoutDLQ:
+    Type: AWS::SNS::Topic
+  PatientCheckoutTopic:
+    Type: AWS::SNS::Topic
+  PatientCheckoutBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: ${AWS::StackName}-${AWS::AccountId}-${AWS::Region}
+  PatientCheckoutFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: PatientCheckoutFunction
+      Handler: com.aws.lambda.demo.s3sns.PatientCheckoutLambda::handler
+      DeadLetterQueue:
+        Type: SNS
+        TargetArn:
+          Ref: PatientCheckoutDLQ
+      Policies:
+      - S3ReadPolicy:
+          BucketName:
+            Fn::Sub: ${AWS::StackName}-${AWS::AccountId}-${AWS::Region}
+      - SNSPublishMessagePolicy:
+          TopicName:
+            Fn::GetAtt:
+            - PatientCheckoutTopic
+            - TopicName
+      Environment:
+        Variables:
+          PATIENT_CHECKOUT_TOPIC:
+            Ref: PatientCheckoutTopic
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket:
+              Ref: PatientCheckoutBucket
+            Events: s3:ObjectCreated:*
+  BillManagementFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: BillManagementFunction
+      Handler: com.aws.lambda.demo.s3sns.BillManagementLambda::handler
+      Events:
+        SNSEvent:
+          Type: SNS
+          Properties:
+            Topic:
+              Ref: PatientCheckoutTopic
+  ErrorHandlingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ErrorHandlingFunction
+      Handler: com.aws.lambda.demo.s3sns.errorhandling.ErrorHandler::handler
+      Events:
+        SNSEvent:
+          Type: SNS
+          Properties:
+            Topic:
+              Ref: PatientCheckoutDLQ
+  ClaimManagementLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ClaimManagementLambdaFunction
+      Handler: com.aws.lambda.demo.sqs.ClaimManagementLambda::handler
+      Events:
+        ClaimEvent:
+          Type: SQS
+          Properties:
+            Queue:
+              Fn::GetAtt:
+              - ClaimManagementQueue
+              - Arn
+            BatchSize: 10
+  ClaimManagementQueue:
+    Type: AWS::SQS::Queue
